@@ -1,7 +1,7 @@
 use crossbeam::channel::{unbounded, Sender};
+use crossbeam::sync::WaitGroup;
 use gstuff::oneshot::oneshot;
-use std::panic::{catch_unwind, AssertUnwindSafe, UnwindSafe};
-use std::sync::{Arc, Mutex};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::thread;
 use std::thread::JoinHandle;
 
@@ -43,7 +43,7 @@ impl ThreadPool {
                 Box<dyn FnOnce() -> () + Send + 'static>,
             >(Box::new(f))
         };
-        self.sender.as_ref().unwrap().send(f);
+        let _ = self.sender.as_ref().unwrap().send(f);
     }
 
     pub fn recv<'scope, F, R>(&self, f: F) -> Result<R, String>
@@ -63,7 +63,7 @@ impl ThreadPool {
     where
         F: FnOnce() -> () + Send + 'static,
     {
-        self.sender.as_ref().unwrap().send(Box::new(f));
+        let _ = self.sender.as_ref().unwrap().send(Box::new(f));
     }
 
     fn join(&mut self) {
@@ -71,8 +71,22 @@ impl ThreadPool {
         drop(sender);
         let handlers = std::mem::take(&mut self.handles);
         for handle in handlers {
-            handle.join();
+            let _ = handle.join();
         }
+    }
+
+    pub fn scoped<F>(&self, f: F)
+    where
+        F: FnOnce(&Scoped) -> (),
+    {
+        let wg = WaitGroup::new();
+        let scoped = Scoped {
+            pool: self,
+            wait_group: wg.clone(),
+        };
+        f(&scoped);
+        drop(scoped);
+        wg.wait();
     }
 }
 
@@ -82,31 +96,67 @@ impl Drop for ThreadPool {
     }
 }
 
-#[test]
-fn test_thread_pool_recv() {
-    let pool = ThreadPool::new(5);
-    let mut data: Vec<_> = (0..100).collect();
-    let result = data
-        .iter_mut()
-        .map(|i| pool.recv(move || *i * *i))
-        .collect::<Result<Vec<_>, _>>()
-        .unwrap();
-    assert_eq!(result, (0..100).map(|i| i * i).collect::<Vec<_>>());
+pub struct Scoped<'pool> {
+    pub pool: &'pool ThreadPool,
+    pub wait_group: WaitGroup,
 }
 
-#[test]
-fn test_thread_pool_join() {
-    let data = Arc::new(Mutex::new(0));
+impl<'pool> Scoped<'pool> {
+    pub fn spawn<'scoped, F>(&self, f: F)
+    where
+        F: FnOnce() -> () + 'scoped + Send,
     {
-        let pool = ThreadPool::new(5);
-
-        for _ in 0..100 {
-            let cloned = data.clone();
-            pool.spawn(move || {
-                let mut guard = cloned.lock().unwrap();
-                *guard += 1;
-            });
-        }
+        let wg = self.wait_group.clone();
+        self.pool.run(move || {
+            f();
+            drop(wg);
+        });
     }
-    assert_eq!(*data.lock().unwrap(), 100);
+}
+
+#[cfg(test)]
+mod test {
+    use crate::thread_pool::ThreadPool;
+    use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn test_thread_pool_recv() {
+        let pool = ThreadPool::new(5);
+        let mut data: Vec<_> = (0..100).collect();
+        let result = data
+            .iter_mut()
+            .map(|i| pool.recv(move || *i * *i))
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(result, (0..100).map(|i| i * i).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_thread_pool_join() {
+        let data = Arc::new(Mutex::new(0));
+        {
+            let pool = ThreadPool::new(5);
+
+            for _ in 0..100 {
+                let cloned = data.clone();
+                pool.spawn(move || {
+                    let mut guard = cloned.lock().unwrap();
+                    *guard += 1;
+                });
+            }
+        }
+        assert_eq!(*data.lock().unwrap(), 100);
+    }
+
+    #[test]
+    fn test_thread_pool_scoped() {
+        let pool = ThreadPool::new(5);
+        let mut data: Vec<_> = (0..100).collect();
+        pool.scoped(|scoped| {
+            for i in data.iter_mut() {
+                scoped.spawn(|| *i *= *i);
+            }
+        });
+        assert_eq!(data, (0..100).map(|i| i * i).collect::<Vec<_>>());
+    }
 }
