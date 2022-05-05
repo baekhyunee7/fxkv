@@ -1,6 +1,7 @@
 use crossbeam::channel::{unbounded, Sender};
 use gstuff::oneshot::oneshot;
 use std::panic::{catch_unwind, AssertUnwindSafe, UnwindSafe};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::thread::JoinHandle;
 
@@ -32,7 +33,7 @@ impl ThreadPool {
         }
     }
 
-    pub fn spawn<'scope, F>(&self, f: F)
+    fn run<'scope, F>(&self, f: F)
     where
         F: FnOnce() -> () + Send + 'scope,
     {
@@ -51,11 +52,18 @@ impl ThreadPool {
         R: Send + 'static,
     {
         let (value_tx, value_rs) = oneshot();
-        self.spawn(move || {
+        self.run(move || {
             let value = f();
             value_tx.send(value);
         });
         value_rs.recv()
+    }
+
+    fn spawn<F>(&self, f: F)
+    where
+        F: FnOnce() -> () + Send + 'static,
+    {
+        self.sender.as_ref().unwrap().send(Box::new(f));
     }
 
     fn join(&mut self) {
@@ -88,13 +96,17 @@ fn test_thread_pool_recv() {
 
 #[test]
 fn test_thread_pool_join() {
-    let mut data: Vec<_> = (0..100).collect();
+    let data = Arc::new(Mutex::new(0));
     {
         let pool = ThreadPool::new(5);
 
-        for x in data.iter_mut() {
-            pool.spawn(|| *x *= *x);
+        for _ in 0..100 {
+            let cloned = data.clone();
+            pool.spawn(move || {
+                let mut guard = cloned.lock().unwrap();
+                *guard += 1;
+            });
         }
     }
-    assert_eq!(data, (0..100).map(|i| i * i).collect::<Vec<_>>());
+    assert_eq!(*data.lock().unwrap(), 100);
 }
