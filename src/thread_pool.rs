@@ -7,7 +7,7 @@ use std::thread::JoinHandle;
 pub type Worker = Box<dyn FnOnce() -> () + Send + 'static>;
 
 pub struct ThreadPool {
-    pub sender: Sender<Worker>,
+    pub sender: Option<Sender<Worker>>,
     pub handles: Vec<JoinHandle<()>>,
 }
 
@@ -26,7 +26,10 @@ impl ThreadPool {
             })
             .collect::<Vec<_>>();
 
-        Self { sender, handles }
+        Self {
+            sender: Some(sender),
+            handles,
+        }
     }
 
     pub fn spawn<'scope, F>(&self, f: F)
@@ -39,7 +42,7 @@ impl ThreadPool {
                 Box<dyn FnOnce() -> () + Send + 'static>,
             >(Box::new(f))
         };
-        self.sender.send(f);
+        self.sender.as_ref().unwrap().send(f);
     }
 
     pub fn recv<'scope, F, R>(&self, f: F) -> Result<R, String>
@@ -55,12 +58,19 @@ impl ThreadPool {
         value_rs.recv()
     }
 
-    pub fn join(self) {
-        let Self { sender, handles } = self;
+    fn join(&mut self) {
+        let sender = self.sender.take().unwrap();
         drop(sender);
-        for handle in handles {
+        let handlers = std::mem::take(&mut self.handles);
+        for handle in handlers {
             handle.join();
         }
+    }
+}
+
+impl Drop for ThreadPool {
+    fn drop(&mut self) {
+        self.join()
     }
 }
 
@@ -78,11 +88,13 @@ fn test_thread_pool_recv() {
 
 #[test]
 fn test_thread_pool_join() {
-    let pool = ThreadPool::new(5);
     let mut data: Vec<_> = (0..100).collect();
-    for x in data.iter_mut() {
-        pool.spawn(|| *x *= *x);
+    {
+        let pool = ThreadPool::new(5);
+
+        for x in data.iter_mut() {
+            pool.spawn(|| *x *= *x);
+        }
     }
-    pool.join();
     assert_eq!(data, (0..100).map(|i| i * i).collect::<Vec<_>>());
 }
