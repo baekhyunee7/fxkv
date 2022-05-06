@@ -8,3 +8,4 @@ edition = "2021"
 [dependencies]
 crossbeam = "0.8.1"
 gstuff = "0.7.15"
+arrayvec = "0.7.2"
