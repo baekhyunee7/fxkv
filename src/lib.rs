@@ -7,6 +7,7 @@ mod error;
 mod lru_map;
 mod state;
 mod thread_pool;
+mod transaction;
 mod tree;
 mod utils;
 
