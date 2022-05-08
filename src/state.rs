@@ -1,3 +1,4 @@
+use crate::db::Cache;
 use crate::lru_map::LruMap;
 use crate::transaction::PAGE_LEN;
 use crate::utils::First;
@@ -17,6 +18,7 @@ use std::usize;
 pub struct State {
     pub reader: RwLock<VersionedState>,
     pub writer: Mutex<VersionedState>,
+    pub cache: RwLock<Cache>,
 }
 
 #[derive(Clone)]
@@ -35,6 +37,7 @@ impl StateBuilder {
         Ok(State {
             reader: RwLock::new(state.clone()),
             writer: Mutex::new(state),
+            cache: RwLock::new(Cache::new()),
         })
     }
 

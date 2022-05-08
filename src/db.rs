@@ -1,16 +1,19 @@
-use crate::state::State;
+use crate::lru_map::LruMap;
+use crate::state::{State, StateBuilder};
 use crate::transaction::{TransactionBatch, TransactionBatchBuilder};
 use crate::tree::Tree;
 use crate::Result;
 use spin::rwlock::RwLock;
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
+use std::hash::Hash;
 use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
 pub const TRANSACTION_FILE: &str = "db.transaction";
+pub type Cache = LruMap<usize, Vec<u8>, 1024>;
 
 pub struct Db {
     pub file_manager: FileManager,
@@ -36,7 +39,18 @@ impl Db {
     }
 
     pub fn open_tree(&self, name: &str) -> Result<Tree> {
-        todo!()
+        let mut guard = self.states.write();
+        let state = guard
+            .entry(name.to_owned())
+            .or_insert({
+                let file_name = FileManager::file_name(name);
+                let file = self.file_manager.get_or_insert(file_name.as_str())?;
+                let mut state_builder = StateBuilder { file };
+                Arc::new(state_builder.build()?)
+            })
+            .clone();
+        drop(guard);
+        Ok(Tree { state })
     }
 }
 
