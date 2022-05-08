@@ -10,4 +10,6 @@ pub enum Error {
     Commit(#[from] SendError<TransactionAction>),
     #[error("Unknown Error:{0}")]
     Unknown(String),
+    #[error("Serde Error: {0}")]
+    Serde(#[from] serde_json::error::Error),
 }

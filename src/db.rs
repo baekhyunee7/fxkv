@@ -1,4 +1,5 @@
 use crate::state::State;
+use crate::transaction::{TransactionBatch, TransactionBatchBuilder};
 use crate::tree::Tree;
 use crate::Result;
 use spin::rwlock::RwLock;
@@ -9,25 +10,27 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
-const TRANSACTION_FILE: &str = "db.transaction";
+pub const TRANSACTION_FILE: &str = "db.transaction";
 
 pub struct Db {
     pub file_manager: FileManager,
     pub context: Context,
     pub states: RwLock<HashMap<String, Arc<State>>>,
+    pub batch: TransactionBatch,
 }
 
 impl Db {
     pub fn new() -> Result<Self> {
         let file_manager = FileManager::new();
         let file = file_manager.get_or_insert(TRANSACTION_FILE)?;
-        let mut file = file.write();
+        let mut transaction_builder = TransactionBatchBuilder { file };
+        let batch = transaction_builder.build()?;
 
-        drop(file);
         let this = Self {
             file_manager,
             context: Context {},
             states: RwLock::new(HashMap::new()),
+            batch,
         };
         Ok(this)
     }
@@ -35,8 +38,6 @@ impl Db {
     pub fn open_tree(&self, name: &str) -> Result<Tree> {
         todo!()
     }
-
-    fn read_transaction(&self) {}
 }
 
 pub struct Context {}
@@ -53,15 +54,14 @@ impl FileManager {
     }
 
     #[inline]
-    fn file_name(&self, name: &str) -> String {
+    fn file_name(name: &str) -> String {
         format!("{}.tree", name)
     }
 
     pub fn get_or_insert(&self, name: &str) -> Result<Arc<RwLock<File>>> {
         let mut files_guard = self.files.upgradeable_read();
         let file = {
-            let file_name = self.file_name(name);
-            let path = Path::new(file_name.as_str());
+            let path = Path::new(name);
             if path.exists() && path.is_file() {
                 OpenOptions::new()
                     .write(true)
