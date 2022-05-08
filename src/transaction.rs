@@ -43,6 +43,7 @@ impl TransactionBatchBuilder {
                 }
                 if windows.completed() {
                     let mut file = file.write();
+                    pending_transactions.sort_by_key(|x| x.data.transaction_id);
                     for tran in pending_transactions.drain(..) {
                         let mut writer = TransactionWriter {
                             file: file.deref_mut(),
@@ -183,8 +184,10 @@ impl TransactionBatch {
 #[cfg(test)]
 mod test {
     use crate::transaction::{TransactionBatchBuilder, TransactionData, TransactionWriter};
+    use crossbeam::sync::WaitGroup;
     use spin::RwLock;
     use std::sync::Arc;
+    use std::thread;
     use tempfile::tempfile;
 
     #[test]
@@ -207,15 +210,23 @@ mod test {
         let file = tempfile().unwrap();
         let file = Arc::new(RwLock::new(file));
         let mut builder = TransactionBatchBuilder { file };
-        let batch = builder.build().unwrap();
-        for i in 1..=100 {
-            batch
-                .commit(TransactionData {
-                    transaction_id: i,
-                    data: None,
-                })
-                .unwrap();
+
+        let batch = Arc::new(builder.build().unwrap());
+        let wg = WaitGroup::new();
+        for i in (1..=100).rev() {
+            let wg_clone = wg.clone();
+            let batch_cloned = batch.clone();
+            thread::spawn(move || {
+                batch_cloned
+                    .commit(TransactionData {
+                        transaction_id: i,
+                        data: None,
+                    })
+                    .unwrap();
+                drop(wg_clone);
+            });
         }
+        wg.wait();
         let id = builder.recover().unwrap();
         assert_eq!(id, 100);
     }
