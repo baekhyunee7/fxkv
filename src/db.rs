@@ -1,4 +1,4 @@
-use crate::state::{State, TransactionState};
+use crate::state::State;
 use crate::tree::Tree;
 use crate::Result;
 use spin::rwlock::RwLock;
@@ -15,7 +15,6 @@ pub struct Db {
     pub file_manager: FileManager,
     pub context: Context,
     pub states: RwLock<HashMap<String, Arc<State>>>,
-    pub transaction_state: TransactionState,
 }
 
 impl Db {
@@ -23,13 +22,12 @@ impl Db {
         let file_manager = FileManager::new();
         let file = file_manager.get_or_insert(TRANSACTION_FILE)?;
         let mut file = file.write();
-        let transaction_state = TransactionState::recover(file.deref_mut())?;
+
         drop(file);
         let this = Self {
             file_manager,
             context: Context {},
             states: RwLock::new(HashMap::new()),
-            transaction_state,
         };
         Ok(this)
     }
