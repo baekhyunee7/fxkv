@@ -19,6 +19,7 @@ pub struct State {
     pub reader: RwLock<VersionedState>,
     pub writer: Mutex<VersionedState>,
     pub cache: RwLock<Cache>,
+    pub lock: Arc<Mutex<()>>,
 }
 
 #[derive(Clone)]
@@ -38,6 +39,7 @@ impl StateBuilder {
             reader: RwLock::new(state.clone()),
             writer: Mutex::new(state),
             cache: RwLock::new(Cache::new()),
+            lock: Arc::new(Mutex::new(())),
         })
     }
 

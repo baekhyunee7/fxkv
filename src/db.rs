@@ -1,8 +1,9 @@
 use crate::lru_map::LruMap;
 use crate::state::{State, StateBuilder};
 use crate::transaction::{TransactionBatch, TransactionBatchBuilder};
-use crate::tree::Tree;
+use crate::tree::{TransactionTrees, Tree};
 use crate::Result;
+use spin::mutex::Mutex;
 use spin::rwlock::RwLock;
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
@@ -50,7 +51,22 @@ impl Db {
             })
             .clone();
         drop(guard);
-        Ok(Tree { state })
+        Ok(Tree {
+            state,
+            name: name.to_owned(),
+        })
+    }
+
+    pub fn start_transaction<I>(&self, names: I) -> Result<TransactionTrees>
+    where
+        I: Iterator<Item = &'static str>,
+    {
+        let states = self.states.read();
+        let trees: Result<Vec<Tree>> = names.map(|name| self.open_tree(name)).collect();
+        let trees = trees?;
+        drop(states);
+        // todo
+        Ok(TransactionTrees { trees })
     }
 }
 

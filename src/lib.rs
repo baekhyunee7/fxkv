@@ -4,6 +4,7 @@ use crate::error::Error;
 
 mod db;
 mod error;
+mod lock;
 mod lru_map;
 mod state;
 mod thread_pool;
