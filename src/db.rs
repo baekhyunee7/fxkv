@@ -53,7 +53,7 @@ impl Db {
         drop(guard);
         Ok(Tree {
             state,
-            name: name.to_owned(),
+            name: Arc::new(name.to_owned()),
         })
     }
 
@@ -65,8 +65,24 @@ impl Db {
         let trees: Result<Vec<Tree>> = names.map(|name| self.open_tree(name)).collect();
         let trees = trees?;
         drop(states);
-        // todo
-        Ok(TransactionTrees { trees })
+        let mut locks: Vec<_> = trees
+            .iter()
+            .map(|x| (x.name.clone(), x.state.lock.clone()))
+            .collect();
+        locks.sort_by_key(|(name, _)| name.clone());
+        Ok(TransactionTrees {
+            trees,
+            locks: locks
+                .into_iter()
+                .map(|(_, lock)| {
+                    lock.lock();
+                    lock
+                })
+                .collect(),
+            committed: false,
+            db: self,
+            transaction_id: self.batch.new_id(),
+        })
     }
 }
 

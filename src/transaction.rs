@@ -7,7 +7,7 @@ use std::borrow::Borrow;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::ops::DerefMut;
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::thread;
 use std::thread::JoinHandle;
@@ -58,7 +58,7 @@ impl TransactionBatchBuilder {
             Ok(())
         });
         Ok(TransactionBatch {
-            transaction_id: AtomicUsize::new(transaction_id),
+            transaction_id: AtomicUsize::new(transaction_id + 1),
             sender: Some(sender),
             handle: Some(handle),
         })
@@ -178,6 +178,16 @@ impl TransactionBatch {
         self.sender.as_ref().unwrap().send(action)?;
         rx.recv().map_err(|err| Error::Unknown(err))?;
         Ok(())
+    }
+
+    pub fn drop(&self, id: usize) -> Result<()> {
+        let action = TransactionAction::Drop(id);
+        self.sender.as_ref().unwrap().send(action)?;
+        Ok(())
+    }
+
+    pub fn new_id(&self) -> usize {
+        self.transaction_id.fetch_add(1, Ordering::SeqCst)
     }
 }
 
