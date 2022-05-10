@@ -2,14 +2,14 @@ extern crate core;
 
 use crate::error::Error;
 
-mod db;
-mod error;
-mod lock;
-mod lru_map;
-mod state;
-mod thread_pool;
-mod transaction;
-mod tree;
-mod utils;
+pub mod db;
+pub mod error;
+pub mod lock;
+pub mod lru_map;
+pub mod state;
+pub mod thread_pool;
+pub mod transaction;
+pub mod tree;
+pub mod utils;
 
 pub type Result<T> = std::result::Result<T, Error>;

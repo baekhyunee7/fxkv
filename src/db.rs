@@ -61,10 +61,8 @@ impl Db {
     where
         I: Iterator<Item = &'static str>,
     {
-        let states = self.states.read();
         let trees: Result<Vec<Tree>> = names.map(|name| self.open_tree(name)).collect();
         let trees = trees?;
-        drop(states);
         let mut locks: Vec<_> = trees
             .iter()
             .map(|x| (x.name.clone(), x.state.lock.clone()))
@@ -100,7 +98,7 @@ impl FileManager {
     }
 
     #[inline]
-    fn file_name(name: &str) -> String {
+    pub fn file_name(name: &str) -> String {
         format!("{}.tree", name)
     }
 
@@ -112,13 +110,13 @@ impl FileManager {
                 OpenOptions::new()
                     .write(true)
                     .read(true)
-                    .create(true)
+                    .append(true)
                     .open(name)
             } else {
                 OpenOptions::new()
                     .write(true)
                     .read(true)
-                    .append(true)
+                    .create(true)
                     .open(name)
             }
         }?;

@@ -182,7 +182,7 @@ pub struct DataRetriever<'file> {
 }
 
 impl<'file> DataRetriever<'file> {
-    pub fn retrieve(&mut self) -> Result<Arc<Vec<u8>>> {
+    pub fn retrieve(&mut self) -> Result<Vec<u8>> {
         self.file.seek(SeekFrom::Start(self.offset))?;
         let mut total = self.length;
         let mut bytes = vec![0_u8; total as usize];
@@ -203,7 +203,7 @@ impl<'file> DataRetriever<'file> {
             total -= to_read;
             offset += to_read;
         }
-        Ok(Arc::new(bytes))
+        Ok(bytes)
     }
 }
 
