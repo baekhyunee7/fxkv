@@ -3,10 +3,9 @@ use crate::lock::Lock;
 use crate::state::{DataRetriever, DataWriter, Index, State, StateWriter};
 use crate::transaction::TransactionData;
 use crate::Result;
-use spin::mutex::Mutex;
-use spin::MutexGuard;
-use std::ops::{Bound, Deref, DerefMut, Range, RangeBounds};
-use std::process::id;
+
+use std::ops::{Bound, Deref, DerefMut, RangeBounds};
+
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -16,7 +15,7 @@ pub struct Tree {
 }
 
 impl Tree {
-    pub fn set<K, V>(&self, key: K, value: V)
+    pub fn set<K, V>(&self, _key: K, _value: V)
     where
         K: AsRef<[u8]>,
         V: AsRef<[u8]>,
@@ -136,7 +135,7 @@ impl<'a, 'db> IndexedTransactionTrees<'a, 'db> {
         let tree = self.trees.trees.get(self.idx).unwrap();
         let key = key.as_ref();
         let index = {
-            let mut guard = tree.state.writer.lock();
+            let guard = tree.state.writer.lock();
             if let Some(value) = guard
                 .indexes
                 .get(unsafe { std::str::from_utf8_unchecked(key) })
@@ -179,7 +178,7 @@ impl<'a, 'db> IndexedTransactionTrees<'a, 'db> {
         R: RangeBounds<K>,
     {
         let tree = self.trees.trees.get(self.idx).unwrap();
-        let mut guard = tree.state.writer.lock();
+        let guard = tree.state.writer.lock();
 
         let lo = match keys.start_bound() {
             Bound::Included(k) => {

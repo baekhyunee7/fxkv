@@ -57,7 +57,7 @@ impl Lock {
 mod test {
     use crate::lock::Lock;
     use crossbeam::sync::WaitGroup;
-    use std::ops::Deref;
+
     use std::sync::Arc;
     use std::thread;
 
@@ -96,7 +96,7 @@ mod test {
             let wg_cloned = wg.clone();
             let ptr = send_ptr.clone();
             thread::spawn(move || {
-                lock_cloned.lock();
+                lock_cloned.lock().unwrap();
                 ptr.add();
                 lock_cloned.unlock();
                 drop(wg_cloned);

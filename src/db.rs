@@ -1,6 +1,6 @@
 use crate::lock::Lock;
 use crate::lru_map::LruMap;
-use crate::state::{PublicState, State, StateBuilder, VersionedState};
+use crate::state::{PublicState, State, StateBuilder};
 use crate::transaction::{TransactionBatch, TransactionBatchBuilder};
 use crate::tree::{TransactionTrees, Tree};
 use crate::Result;
@@ -8,10 +8,9 @@ use spin::mutex::Mutex;
 use spin::rwlock::RwLock;
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
-use std::hash::Hash;
-use std::ops::{Deref, DerefMut};
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicUsize};
+
+use std::path::Path;
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 pub const TRANSACTION_FILE: &str = "db.transaction";
@@ -47,7 +46,7 @@ impl Db {
             .or_insert({
                 let file_name = FileManager::file_name(name);
                 let file = self.file_manager.get_or_insert(file_name.as_str())?;
-                let mut state_builder = StateBuilder { file };
+                let state_builder = StateBuilder { file };
                 let version_state = state_builder.build()?;
                 PublicState {
                     cache: Arc::new(RwLock::new(Cache::new())),
@@ -82,10 +81,10 @@ impl Db {
             locks: locks
                 .into_iter()
                 .map(|(_, lock)| {
-                    lock.lock();
-                    lock
+                    lock.lock()?;
+                    Ok(lock)
                 })
-                .collect(),
+                .collect::<Result<Vec<Arc<Lock>>>>()?,
             committed: AtomicBool::new(false),
             db: self,
             transaction_id: self.batch.new_id(),
@@ -112,7 +111,7 @@ impl FileManager {
     }
 
     pub fn get_or_insert(&self, name: &str) -> Result<Arc<RwLock<File>>> {
-        let mut files_guard = self.files.upgradeable_read();
+        let files_guard = self.files.upgradeable_read();
         let file = {
             let path = Path::new(name);
             if path.exists() && path.is_file() {

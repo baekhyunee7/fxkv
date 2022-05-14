@@ -1,5 +1,4 @@
 use fxkv::db::Db;
-use std::ops::Bound;
 
 fn main() {
     let db = Db::new().unwrap();

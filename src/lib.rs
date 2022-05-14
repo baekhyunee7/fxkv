@@ -1,3 +1,4 @@
+#[warn(dead_code)]
 extern crate core;
 
 use crate::error::Error;

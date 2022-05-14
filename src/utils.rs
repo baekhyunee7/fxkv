@@ -64,7 +64,7 @@ impl Windows {
             .bitmap
             .iter()
             .enumerate()
-            .skip_while(|(idx, x)| **x == 0xff)
+            .skip_while(|(_idx, x)| **x == 0xff)
             .nth(0)
         {
             self.head += idx * BYTE_SIZE;

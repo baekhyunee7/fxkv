@@ -1,20 +1,17 @@
 use crate::db::Cache;
 use crate::lock::Lock;
-use crate::lru_map::LruMap;
+
 use crate::transaction::PAGE_LEN;
 use crate::utils::First;
-use crate::Error::Serde;
+
 use crate::Result;
 use serde::{Deserialize, Serialize};
 use spin::{Mutex, RwLock};
 use std::collections::BTreeMap;
 use std::fs::File;
-use std::io::SeekFrom::Current;
+
 use std::io::{Read, Seek, SeekFrom, Write};
-use std::ops::{Deref, DerefMut};
-use std::os::linux::raw::stat;
-use std::os::unix::process::parent_id;
-use std::sync::atomic::AtomicUsize;
+
 use std::sync::Arc;
 use std::usize;
 
@@ -75,7 +72,7 @@ impl StateBuilder {
             // find data header
             while let Some(position) = len.checked_sub(PAGE_LEN as u64) {
                 len = position;
-                file.seek(SeekFrom::Start(position));
+                file.seek(SeekFrom::Start(position))?;
                 file.read_exact(&mut buf[..])?;
                 if buf[0] == 1_u8 {
                     break;
@@ -87,7 +84,6 @@ impl StateBuilder {
             let mut bytes = vec![0_u8; total as usize];
             let mut first = First::new(5, 1);
             let mut offset = 0;
-            // file.seek(SeekFrom::Start(len));
             while total > 0 {
                 if !first.first() {
                     let mut buf = [1_u8; 1];
@@ -97,7 +93,7 @@ impl StateBuilder {
                 let header_len = first.get();
                 let page_rest = PAGE_LEN - header_len;
                 let to_read = total.min(page_rest);
-                file.read_exact(&mut bytes[offset as usize..(offset + to_read) as usize]);
+                file.read_exact(&mut bytes[offset as usize..(offset + to_read) as usize])?;
                 total -= to_read;
                 offset += to_read;
             }
@@ -115,8 +111,8 @@ impl<'a, 'file> StateWriter<'a, 'file> {
     pub fn write(&mut self) -> Result<()> {
         let len = self.file.metadata()?.len();
         let len = ((len + PAGE_LEN - 1) / PAGE_LEN) * PAGE_LEN;
-        self.file.set_len(len);
-        self.file.seek(SeekFrom::Start(len));
+        self.file.set_len(len)?;
+        self.file.seek(SeekFrom::Start(len))?;
         self.file.write(&[1_u8])?;
         let data = serde_json::to_vec(&self.state.indexes)?;
         let mut total = data.len();
@@ -150,16 +146,16 @@ impl<'file> DataWriter<'file> {
         let mut buf = [0_u8; 1];
         let need_header = {
             if page_offset != len && {
-                self.file.seek(SeekFrom::Start(page_offset));
+                self.file.seek(SeekFrom::Start(page_offset))?;
                 self.file.read_exact(&mut buf[..])?;
                 buf[0] != 2
             } {
                 let new_offset = ((len + PAGE_LEN - 1) / PAGE_LEN) * PAGE_LEN;
-                self.file.set_len(new_offset);
-                self.file.seek(SeekFrom::Start(new_offset));
+                self.file.set_len(new_offset)?;
+                self.file.seek(SeekFrom::Start(new_offset))?;
                 true
             } else {
-                self.file.seek(SeekFrom::Start(len));
+                self.file.seek(SeekFrom::Start(len))?;
                 len == page_offset
             }
         };
@@ -211,7 +207,7 @@ impl<'file> DataRetriever<'file> {
             let page_rest = PAGE_LEN - header_len;
             let to_read = total.min(page_rest);
             self.file
-                .read_exact(&mut bytes[offset as usize..(offset + to_read) as usize]);
+                .read_exact(&mut bytes[offset as usize..(offset + to_read) as usize])?;
             total -= to_read;
             offset += to_read;
         }
@@ -221,7 +217,7 @@ impl<'file> DataRetriever<'file> {
 
 #[cfg(test)]
 mod test {
-    use crate::state::{DataRetriever, DataWriter, Index, State, StateBuilder, StateWriter};
+    use crate::state::{DataRetriever, DataWriter, Index, StateBuilder, StateWriter};
     use spin::RwLock;
     use std::ops::{Deref, DerefMut};
     use std::sync::Arc;
@@ -230,9 +226,9 @@ mod test {
     #[test]
     fn test_state_builder() {
         let file = tempfile().unwrap();
-        let mut file = Arc::new(RwLock::new(file));
+        let file = Arc::new(RwLock::new(file));
         let builder = StateBuilder { file: file.clone() };
-        let mut state = Arc::new(RwLock::new(builder.build().unwrap()));
+        let state = Arc::new(RwLock::new(builder.build().unwrap()));
         assert_eq!(state.read().indexes.len(), 0);
         {
             let mut file_guard = file.write();
@@ -255,9 +251,9 @@ mod test {
                 file: file_guard.deref_mut(),
                 state: state_writer.deref(),
             };
-            writer.write();
+            writer.write().unwrap();
         }
-        let mut indexes = builder.recover().unwrap();
+        let indexes = builder.recover().unwrap();
         {
             let mut file_guard = file.write();
             for i in 0..100 {

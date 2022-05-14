@@ -3,7 +3,7 @@ use crate::{Error, Result};
 use crossbeam::channel::{unbounded, Sender};
 use gstuff::oneshot::oneshot;
 use spin::RwLock;
-use std::borrow::Borrow;
+
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::ops::DerefMut;
@@ -75,7 +75,7 @@ impl TransactionBatchBuilder {
             // find data header
             while let Some(position) = len.checked_sub(PAGE_LEN as u64) {
                 len = position;
-                file.seek(SeekFrom::Start(position));
+                file.seek(SeekFrom::Start(position))?;
                 file.read_exact(&mut buf[..])?;
                 if buf[0] == 1_u8 {
                     break;
@@ -88,11 +88,10 @@ impl TransactionBatchBuilder {
             // transaction_id
             let mut buf = [0_u8; 8];
             file.read_exact(&mut buf[..])?;
-            let mut transaction_id = usize::from_be_bytes(buf);
+            let transaction_id = usize::from_be_bytes(buf);
             let mut bytes = vec![0_u8; total as usize];
             let mut first = First::new(13, 1);
             let mut offset = 0;
-            // file.seek(SeekFrom::Start(len));
             while total > 0 {
                 if !first.first() {
                     let mut buf = [1_u8; 1];
@@ -102,7 +101,7 @@ impl TransactionBatchBuilder {
                 let header_len = first.get();
                 let page_rest = PAGE_LEN - header_len;
                 let to_read = total.min(page_rest);
-                file.read_exact(&mut bytes[offset as usize..(offset + to_read) as usize]);
+                file.read_exact(&mut bytes[offset as usize..(offset + to_read) as usize])?;
                 total -= to_read;
                 offset += to_read;
             }
@@ -131,8 +130,8 @@ impl<'a> TransactionWriter<'a> {
     pub fn write(&mut self) -> Result<()> {
         let len = self.file.metadata()?.len();
         let len = ((len + PAGE_LEN - 1) / PAGE_LEN) * PAGE_LEN;
-        self.file.set_len(len);
-        self.file.seek(SeekFrom::Start(len));
+        self.file.set_len(len)?;
+        self.file.seek(SeekFrom::Start(len))?;
         self.file.write(&[1_u8])?;
         let mut total = self.data.as_ref().map(|x| x.len()).unwrap_or(0);
         self.file.write(&(total as u32).to_be_bytes()[..])?;
@@ -167,7 +166,7 @@ impl Drop for TransactionBatch {
         let sender = self.sender.take().unwrap();
         drop(sender);
         let handle = self.handle.take().unwrap();
-        handle.join();
+        let _ = handle.join();
     }
 }
 

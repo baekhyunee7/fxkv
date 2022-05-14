@@ -1,7 +1,7 @@
 use arrayvec::ArrayVec;
 use std::collections::HashMap;
 use std::hash::Hash;
-use std::process::id;
+
 use std::rc::Rc;
 
 pub struct LruMap<K, V, const N: usize> {
@@ -47,7 +47,7 @@ where
         } else {
             let old = self.pop_back();
             self.indexes.remove(&self.cache[old].key);
-            std::mem::replace(&mut self.cache[old], entry);
+            let _ = std::mem::replace(&mut self.cache[old], entry);
             self.indexes.insert(key, old);
         }
     }
