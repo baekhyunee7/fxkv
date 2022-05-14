@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::SeekFrom::Current;
 use std::io::{Read, Seek, SeekFrom, Write};
-use std::ops::Deref;
+use std::ops::{Deref, DerefMut};
 use std::os::linux::raw::stat;
 use std::os::unix::process::parent_id;
 use std::sync::atomic::AtomicUsize;
@@ -19,15 +19,30 @@ use std::sync::Arc;
 use std::usize;
 
 pub struct State {
-    pub reader: RwLock<VersionedState>,
     pub writer: Mutex<VersionedState>,
-    pub cache: RwLock<Cache>,
-    pub lock: Arc<Lock>,
+    pub public: PublicState,
 }
 
 #[derive(Clone)]
+pub struct PublicState {
+    pub reader: Arc<RwLock<VersionedState>>,
+    pub cache: Arc<RwLock<Cache>>,
+    pub lock: Arc<Lock>,
+}
+
+// impl State{
+//     pub fn folk(&self)->Self{
+//         Self{
+//             writer: Mutex::new(self.reader.lock().clone()),
+//             reader: self.reader.clone()
+//         }
+//     }
+// }
+
+#[derive(Clone)]
 pub struct VersionedState {
-    pub indexes: BTreeMap<String, Option<Index>>,
+    pub indexes: BTreeMap<String, Index>,
+    pub dirty: bool,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -41,18 +56,15 @@ pub struct StateBuilder {
 }
 
 impl StateBuilder {
-    pub fn build(&self) -> Result<State> {
+    pub fn build(&self) -> Result<VersionedState> {
         let indexes = self.recover()?;
-        let state = VersionedState { indexes };
-        Ok(State {
-            reader: RwLock::new(state.clone()),
-            writer: Mutex::new(state),
-            cache: RwLock::new(Cache::new()),
-            lock: Arc::new(Lock::new()),
+        Ok(VersionedState {
+            indexes,
+            dirty: false,
         })
     }
 
-    pub fn recover(&self) -> Result<BTreeMap<String, Option<Index>>> {
+    pub fn recover(&self) -> Result<BTreeMap<String, Index>> {
         let mut file = self.file.write();
         let len = file.metadata()?.len();
         let mut len = ((len + PAGE_LEN - 1) / PAGE_LEN) * PAGE_LEN;
@@ -220,11 +232,11 @@ mod test {
         let file = tempfile().unwrap();
         let mut file = Arc::new(RwLock::new(file));
         let builder = StateBuilder { file: file.clone() };
-        let state = builder.build().unwrap();
-        assert_eq!(state.writer.lock().indexes.len(), 0);
+        let mut state = Arc::new(RwLock::new(builder.build().unwrap()));
+        assert_eq!(state.read().indexes.len(), 0);
         {
             let mut file_guard = file.write();
-            let mut writer = state.writer.lock();
+            let mut state_writer = state.write();
 
             for i in 0..100 {
                 let value = format!("value{i}");
@@ -234,14 +246,14 @@ mod test {
                     data: Arc::new(value.into_bytes()),
                 };
                 let offset = data_writer.write().unwrap();
-                writer
+                state_writer
                     .indexes
-                    .insert(format!("key{i}"), Some(Index { offset, length }));
+                    .insert(format!("key{i}"), Index { offset, length });
             }
 
             let mut writer = StateWriter {
                 file: file_guard.deref_mut(),
-                state: writer.deref(),
+                state: state_writer.deref(),
             };
             writer.write();
         }
@@ -249,11 +261,7 @@ mod test {
         {
             let mut file_guard = file.write();
             for i in 0..100 {
-                let index = indexes
-                    .get(format!("key{i}").as_str())
-                    .unwrap()
-                    .clone()
-                    .unwrap();
+                let index = indexes.get(format!("key{i}").as_str()).unwrap().clone();
                 let mut retriever = DataRetriever {
                     file: file_guard.deref_mut(),
                     offset: index.offset,

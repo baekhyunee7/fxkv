@@ -46,7 +46,9 @@ impl Windows {
     }
 
     pub fn put(&mut self, i: usize) {
-        assert!(i >= self.head);
+        if i < self.head {
+            return;
+        }
         let diff = i - self.head;
         let idx = diff / BYTE_SIZE;
         let bit = diff % BYTE_SIZE;

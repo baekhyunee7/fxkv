@@ -1,5 +1,6 @@
+use crate::lock::Lock;
 use crate::lru_map::LruMap;
-use crate::state::{State, StateBuilder};
+use crate::state::{PublicState, State, StateBuilder, VersionedState};
 use crate::transaction::{TransactionBatch, TransactionBatchBuilder};
 use crate::tree::{TransactionTrees, Tree};
 use crate::Result;
@@ -10,7 +11,7 @@ use std::fs::{File, OpenOptions};
 use std::hash::Hash;
 use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicBool, AtomicUsize};
 use std::sync::Arc;
 
 pub const TRANSACTION_FILE: &str = "db.transaction";
@@ -19,7 +20,7 @@ pub type Cache = LruMap<usize, Vec<u8>, 1024>;
 pub struct Db {
     pub file_manager: FileManager,
     pub context: Context,
-    pub states: RwLock<HashMap<String, Arc<State>>>,
+    pub states: RwLock<HashMap<String, PublicState>>,
     pub batch: TransactionBatch,
 }
 
@@ -47,12 +48,20 @@ impl Db {
                 let file_name = FileManager::file_name(name);
                 let file = self.file_manager.get_or_insert(file_name.as_str())?;
                 let mut state_builder = StateBuilder { file };
-                Arc::new(state_builder.build()?)
+                let version_state = state_builder.build()?;
+                PublicState {
+                    cache: Arc::new(RwLock::new(Cache::new())),
+                    lock: Arc::new(Lock::new()),
+                    reader: Arc::new(RwLock::new(version_state)),
+                }
             })
             .clone();
-        drop(guard);
+        // drop(guard);
         Ok(Tree {
-            state,
+            state: State {
+                public: state.clone(),
+                writer: Mutex::new(state.reader.clone().read().clone()),
+            },
             name: Arc::new(name.to_owned()),
         })
     }
@@ -65,7 +74,7 @@ impl Db {
         let trees = trees?;
         let mut locks: Vec<_> = trees
             .iter()
-            .map(|x| (x.name.clone(), x.state.lock.clone()))
+            .map(|x| (x.name.clone(), x.state.public.lock.clone()))
             .collect();
         locks.sort_by_key(|(name, _)| name.clone());
         Ok(TransactionTrees {
@@ -77,7 +86,7 @@ impl Db {
                     lock
                 })
                 .collect(),
-            committed: false,
+            committed: AtomicBool::new(false),
             db: self,
             transaction_id: self.batch.new_id(),
         })
